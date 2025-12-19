@@ -17,9 +17,46 @@ rm -rf /home/container/tmp/* || { log_error "Failed to remove temporary files.";
 log_success "Temporary files removed successfully."
 
 # ----------------------------
-# Composer install (Laravel deps)
+# Webroot
 # ----------------------------
 cd /home/container/webroot || { log_error "webroot not found"; exit 1; }
+
+# ----------------------------
+# INIT_LARAVEL (one-time init with marker)
+# Wipes /home/container/webroot and rebuilds Laravel if marker does not exist
+# ----------------------------
+LARAVEL_INIT_MARKER="${LARAVEL_INIT_MARKER:-.laravel_auto_initialized}"
+LARAVEL_PACKAGE="${LARAVEL_PACKAGE:-laravel/laravel}"   # composer package
+LARAVEL_VERSION="${LARAVEL_VERSION:-}"                  # optional (e.g. "10.*" or "11.*")
+
+if [ "${INIT_LARAVEL:-0}" = "1" ] || [ "${INIT_LARAVEL:-false}" = "true" ]; then
+  if [ ! -f "/home/container/webroot/${LARAVEL_INIT_MARKER}" ]; then
+    log_warning "INIT_LARAVEL enabled and marker not found (${LARAVEL_INIT_MARKER})."
+    log_warning "WIPING /home/container/webroot and rebuilding Laravel..."
+
+    # Wipe webroot safely (including dotfiles) without touching '.' or '..'
+    rm -rf -- /home/container/webroot/* /home/container/webroot/.[!.]* /home/container/webroot/..?* 2>/dev/null
+
+    # Rebuild Laravel
+    log_info "Creating Laravel project via composer..."
+    if [ -n "${LARAVEL_VERSION}" ]; then
+      composer create-project --no-interaction --prefer-dist "${LARAVEL_PACKAGE}" /home/container/webroot "${LARAVEL_VERSION}" \
+        || { log_error "composer create-project failed"; exit 1; }
+    else
+      composer create-project --no-interaction --prefer-dist "${LARAVEL_PACKAGE}" /home/container/webroot \
+        || { log_error "composer create-project failed"; exit 1; }
+    fi
+
+    # Basic writable dirs (common for Laravel containers)
+    chmod -R 775 /home/container/webroot/storage /home/container/webroot/bootstrap/cache 2>/dev/null || true
+
+    # Drop marker so we don't wipe again next boot
+    touch "/home/container/webroot/${LARAVEL_INIT_MARKER}" || true
+    log_success "Laravel initialized. Marker created: ${LARAVEL_INIT_MARKER}"
+  else
+    log_success "INIT_LARAVEL enabled but marker exists (${LARAVEL_INIT_MARKER}); skipping wipe/rebuild."
+  fi
+fi
 
 # ----------------------------
 # Auto-update from Git on startup (optional)
@@ -72,6 +109,9 @@ if [ "${AUTO_UPDATE:-0}" = "1" ] || [ "${AUTO_UPDATE:-false}" = "true" ]; then
   fi
 fi
 
+# ----------------------------
+# Composer install (Laravel deps)
+# ----------------------------
 if [ "${RUN_COMPOSER_INSTALL:-true}" = "true" ] || [ "${RUN_COMPOSER_INSTALL:-1}" = "1" ]; then
   if [ -f composer.json ]; then
     if [ ! -f vendor/autoload.php ]; then
@@ -91,7 +131,7 @@ fi
 
 # Ensure .env exists
 if [ ! -f .env ] && [ -f .env.example ]; then
-cp .env.example .env
+  cp .env.example .env
 fi
 
 # Generate APP_KEY if missing
