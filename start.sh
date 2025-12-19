@@ -1,4 +1,4 @@
-#!/bin/ash
+#!/bin/sh
 
 # Colors for output
 GREEN="\033[0;32m"
@@ -26,18 +26,16 @@ cd /home/container/webroot || { log_error "webroot not found"; exit 1; }
 # Wipes /home/container/webroot and rebuilds Laravel if marker does not exist
 # ----------------------------
 LARAVEL_INIT_MARKER="${LARAVEL_INIT_MARKER:-.laravel_auto_initialized}"
-LARAVEL_PACKAGE="${LARAVEL_PACKAGE:-laravel/laravel}"   # composer package
-LARAVEL_VERSION="${LARAVEL_VERSION:-}"                  # optional (e.g. "10.*" or "11.*")
+LARAVEL_PACKAGE="${LARAVEL_PACKAGE:-laravel/laravel}"
+LARAVEL_VERSION="${LARAVEL_VERSION:-}"
 
 if [ "${INIT_LARAVEL:-0}" = "1" ] || [ "${INIT_LARAVEL:-false}" = "true" ]; then
   if [ ! -f "/home/container/webroot/${LARAVEL_INIT_MARKER}" ]; then
     log_warning "INIT_LARAVEL enabled and marker not found (${LARAVEL_INIT_MARKER})."
     log_warning "WIPING /home/container/webroot and rebuilding Laravel..."
 
-    # Wipe webroot safely (including dotfiles) without touching '.' or '..'
     rm -rf -- /home/container/webroot/* /home/container/webroot/.[!.]* /home/container/webroot/..?* 2>/dev/null
 
-    # Rebuild Laravel
     log_info "Creating Laravel project via composer..."
     if [ -n "${LARAVEL_VERSION}" ]; then
       composer create-project --no-interaction --prefer-dist "${LARAVEL_PACKAGE}" /home/container/webroot "${LARAVEL_VERSION}" \
@@ -47,10 +45,8 @@ if [ "${INIT_LARAVEL:-0}" = "1" ] || [ "${INIT_LARAVEL:-false}" = "true" ]; then
         || { log_error "composer create-project failed"; exit 1; }
     fi
 
-    # Basic writable dirs (common for Laravel containers)
     chmod -R 775 /home/container/webroot/storage /home/container/webroot/bootstrap/cache 2>/dev/null || true
 
-    # Drop marker so we don't wipe again next boot
     touch "/home/container/webroot/${LARAVEL_INIT_MARKER}" || true
     log_success "Laravel initialized. Marker created: ${LARAVEL_INIT_MARKER}"
   else
@@ -65,23 +61,19 @@ if [ "${AUTO_UPDATE:-0}" = "1" ] || [ "${AUTO_UPDATE:-false}" = "true" ]; then
   if [ -n "${GIT_ADDRESS}" ]; then
     log_info "AUTO_UPDATE enabled. Syncing from git..."
 
-    # Normalize URL (optional)
     case "${GIT_ADDRESS}" in
-      git@*) REPO_URL="${GIT_ADDRESS}" ;;                  # ssh form
+      git@*) REPO_URL="${GIT_ADDRESS}" ;;
       http://*|https://*) REPO_URL="${GIT_ADDRESS}" ;;
       *) REPO_URL="https://${GIT_ADDRESS}" ;;
     esac
 
-    # Add .git if missing (optional)
     [ "${REPO_URL##*.}" != "git" ] && REPO_URL="${REPO_URL}.git"
 
-    # If using https + token auth, inject creds
     if [ -n "${USERNAME}" ] && [ -n "${ACCESS_TOKEN}" ]; then
       REPO_URL="https://${USERNAME}:${ACCESS_TOKEN}@${REPO_URL#https://}"
     fi
 
     if [ -d .git ]; then
-      # Ensure origin matches and pull
       git remote set-url origin "${REPO_URL}" 2>/dev/null || true
       git fetch --all --prune || log_warning "git fetch failed"
 
@@ -92,7 +84,6 @@ if [ "${AUTO_UPDATE:-0}" = "1" ] || [ "${AUTO_UPDATE:-false}" = "true" ]; then
         git pull --ff-only || log_warning "git pull failed"
       fi
     else
-      # If empty, clone; if not empty, don't stomp user files
       if [ -z "$(ls -A . 2>/dev/null)" ]; then
         log_info "webroot empty; cloning repo..."
         if [ -n "${BRANCH}" ]; then
@@ -116,8 +107,11 @@ if [ "${RUN_COMPOSER_INSTALL:-true}" = "true" ] || [ "${RUN_COMPOSER_INSTALL:-1}
   if [ -f composer.json ]; then
     if [ ! -f vendor/autoload.php ]; then
       log_info "Running composer install..."
-      composer install --no-interaction --prefer-dist ${COMPOSER_FLAGS:---no-dev --optimize-autoloader} \
+
+      COMPOSER_FLAGS_EFFECTIVE="${COMPOSER_FLAGS:-"--no-dev --optimize-autoloader"}"
+      composer install --no-interaction --prefer-dist ${COMPOSER_FLAGS_EFFECTIVE} \
         || { log_error "composer install failed"; exit 1; }
+
       log_success "Composer install completed."
     else
       log_success "vendor/autoload.php exists; skipping composer install."
@@ -153,8 +147,6 @@ if [ -n "${RUN_ON_START}" ]; then
   log_warning "RUN_ON_START is enabled: ${RUN_ON_START}"
   log_info "RUN_ON_START set; executing..."
   cd /home/container/webroot || exit 1
-
-  # Run exactly what the user provided (can be multiple commands separated by ; or newlines)
   sh -lc "${RUN_ON_START}" || log_warning "RUN_ON_START command failed"
 fi
 
