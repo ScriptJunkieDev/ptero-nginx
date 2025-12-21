@@ -7,11 +7,15 @@ RUN apk add --no-cache \
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-# Build deps for PHP extensions
+# Build deps for PHP extensions (including GD)
 RUN apk add --no-cache --virtual .build-deps \
       $PHPIZE_DEPS \
       libzip-dev \
-  && docker-php-ext-install pdo_mysql mysqli bcmath zip \
+      freetype-dev \
+      libjpeg-turbo-dev \
+      libpng-dev \
+  && docker-php-ext-configure gd --with-freetype --with-jpeg \
+  && docker-php-ext-install pdo_mysql mysqli bcmath zip gd \
   && apk del .build-deps
 
 RUN addgroup -S container \
