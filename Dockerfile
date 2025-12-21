@@ -1,19 +1,20 @@
 ARG PHP_VERSION=8.2
 FROM php:${PHP_VERSION}-fpm-alpine
 
+# ✅ Runtime libs needed by gd.so at runtime
 RUN apk add --no-cache \
-    nginx git unzip zip ca-certificates openssh-client libzip \
-    bash
+    nginx git unzip zip ca-certificates openssh-client libzip bash \
+    libpng libjpeg-turbo freetype
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
-# Build deps for PHP extensions (including GD)
+# ✅ Build deps only for compiling extensions
 RUN apk add --no-cache --virtual .build-deps \
       $PHPIZE_DEPS \
       libzip-dev \
-      freetype-dev \
-      libjpeg-turbo-dev \
       libpng-dev \
+      libjpeg-turbo-dev \
+      freetype-dev \
   && docker-php-ext-configure gd --with-freetype --with-jpeg \
   && docker-php-ext-install pdo_mysql mysqli bcmath zip gd \
   && apk del .build-deps
