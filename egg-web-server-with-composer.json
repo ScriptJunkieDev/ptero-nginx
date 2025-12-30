@@ -1,0 +1,193 @@
+{
+    "_comment": "DO NOT EDIT: FILE GENERATED AUTOMATICALLY BY PTERODACTYL PANEL - PTERODACTYL.IO",
+    "meta": {
+        "version": "PTDL_v2",
+        "update_url": null
+    },
+    "exported_at": "2025-12-29T20:47:48-05:00",
+    "name": "Web Server with Composer",
+    "author": "scriptjunkie@towncraft.us",
+    "description": "Nginx web server with Composer support.",
+    "features": null,
+    "docker_images": {
+        "PHP 8.4": "ghcr.io/scriptjunkiedev/ptero-nginx:8.4"
+    },
+    "file_denylist": [],
+    "startup": "{{STARTUP_CMD}}",
+    "config": {
+        "files": "{}",
+        "startup": "{\r\n    \"done\": \"[SUCCESS] Web server is running. All services started successfully.\",\r\n    \"userInteraction\": []\r\n}",
+        "logs": "{\r\n    \"custom\": false,\r\n    \"location\": \"logs/latest.log\"\r\n}",
+        "stop": "^C & ^C"
+    },
+    "scripts": {
+        "installation": {
+            "script": "#!/bin/ash\nset -eu\n\ncd /mnt/server || exit 1\n\nmkdir -p /mnt/server/webroot/public\nmkdir -p /mnt/server/tmp /mnt/server/logs\n\necho \"Install complete. Runtime image entrypoint will seed start.sh (always) and seed nginx/php-fpm only if missing.\"\n",
+            "container": "alpine:latest",
+            "entrypoint": "ash"
+        }
+    },
+    "variables": [
+        {
+            "name": "Startup Command",
+            "description": "The command to startup the egg \r\n(Do not change if you do not know what you are doing!)",
+            "env_variable": "STARTUP_CMD",
+            "default_value": "./start.sh",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "present",
+            "field_type": "text"
+        },
+        {
+            "name": "Run composer install on startup",
+            "description": "Runs `composer install` at startup if vendor/autoload.php is missing.\r\n\r\n0 = false\r\n1 = true",
+            "env_variable": "RUN_COMPOSER_INSTALL",
+            "default_value": "0",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean",
+            "field_type": "text"
+        },
+        {
+            "name": "Composer install flags",
+            "description": "Flags passed to `composer install` when RUN_COMPOSER_INSTALL is enabled.",
+            "env_variable": "COMPOSER_FLAGS",
+            "default_value": "--no-dev --optimize-autoloader",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "Composer modules",
+            "description": "Legacy field from the upstream egg. (Not used by startup anymore unless you wire it into start.sh.)",
+            "env_variable": "COMPOSER_MODULES",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "Git Repo Address",
+            "description": "Git repo to clone\r\n\r\nI.E. https://github.com/finnie2006/repo_name",
+            "env_variable": "GIT_ADDRESS",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "Git Branch",
+            "description": "What branch to pull from github.\r\n\r\nDefault is blank to pull the repo default branch",
+            "env_variable": "BRANCH",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "Auto Update",
+            "description": "Pull the latest files on startup when using a GitHub repo.",
+            "env_variable": "AUTO_UPDATE",
+            "default_value": "0",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean",
+            "field_type": "text"
+        },
+        {
+            "name": "User Uploaded Files",
+            "description": "Skip all the install stuff if you are letting a user upload files.\r\n\r\n0 = false (default)\r\n1 = true",
+            "env_variable": "USER_UPLOAD",
+            "default_value": "0",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean",
+            "field_type": "text"
+        },
+        {
+            "name": "Git Username",
+            "description": "Username to auth with git.",
+            "env_variable": "USERNAME",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "Git Access Token",
+            "description": "Password to use with git.\r\n\r\nIt's best practice to use a Personal Access Token.\r\nhttps://github.com/settings/tokens\r\nhttps://gitlab.com/-/profile/personal_access_tokens",
+            "env_variable": "ACCESS_TOKEN",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "Clear Laravel Cache",
+            "description": "Used to clear laravel cache",
+            "env_variable": "RUN_OPTIMIZE_CLEAR",
+            "default_value": "0",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean",
+            "field_type": "text"
+        },
+        {
+            "name": "Run Migrations",
+            "description": "",
+            "env_variable": "RUN_MIGRATIONS",
+            "default_value": "0",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean",
+            "field_type": "text"
+        },
+        {
+            "name": "Run on Start",
+            "description": "Custom command to run during startup after code is pulled and before nginx starts. Can be multiple commands separated by ; or newlines\r\n\r\nEX: php artisan config:clear;php artisan route:clear;php artisan optimize:clear;php artisan route:list\r\nlike custom artisan commands etc.",
+            "env_variable": "RUN_ON_START",
+            "default_value": "php artisan config:clear;php artisan route:clear;php artisan optimize:clear;php artisan route:list",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string",
+            "field_type": "text"
+        },
+        {
+            "name": "Init Laravel Project",
+            "description": "Initialize default laravel project",
+            "env_variable": "INIT_LARAVEL",
+            "default_value": "1",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean",
+            "field_type": "text"
+        },
+        {
+            "name": "LARAVEL_VERSION",
+            "description": "",
+            "env_variable": "LARAVEL_VERSION",
+            "default_value": "10",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:20",
+            "field_type": "text"
+        },
+        {
+            "name": "LARAVEL_PACKAGE",
+            "description": "",
+            "env_variable": "LARAVEL_PACKAGE",
+            "default_value": "laravel/laravel",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|max:20",
+            "field_type": "text"
+        }
+    ],
+    "icon": null
+}

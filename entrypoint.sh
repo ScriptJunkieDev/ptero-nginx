@@ -1,45 +1,40 @@
 #!/bin/sh
 set -eu
 
-sleep 1
-cd /home/container || exit 1
+TEMPLATE_START="/usr/local/share/ptero/start.sh"
+TEMPLATE_NGINX_DIR="/usr/local/share/ptero/templates/nginx"
+TEMPLATE_PHPFPM_DIR="/usr/local/share/ptero/templates/php-fpm"
 
-# Pterodactyl egg uses STARTUP_CMD (your egg's env variable)
-# Fallbacks keep it compatible if you ever rename it.
-RAW_STARTUP="${STARTUP_CMD:-${STARTUP:-./start.sh}}"
+# Default if Pterodactyl doesn't provide one
+TARGET_START="${STARTUP_CMD:-/home/container/start.sh}"
 
-# Expand {{VAR}} -> ${VAR} and evaluate (ptero-style templates)
-TEMPLATED="$(printf '%s' "${RAW_STARTUP}" | sed -e 's/{{/${/g' -e 's/}}/}/g')"
-MODIFIED_STARTUP="$(eval "echo \"${TEMPLATED}\"")"
+echo "[ptero] Boot seed starting..."
+echo "[ptero] TARGET_START=${TARGET_START}"
 
-echo ":/home/container$ ${MODIFIED_STARTUP}"
+# --- Always reseed start.sh (overwrite every boot) ---
+mkdir -p "$(dirname "${TARGET_START}")"
+cp -f "${TEMPLATE_START}" "${TARGET_START}"
+chmod +x "${TARGET_START}"
 
-# If MODIFIED_STARTUP looks like a script path, seed it if missing then exec it
-case "${MODIFIED_STARTUP}" in
-  *.sh|./*.sh|/*.sh)
-    # Normalize relative paths to /home/container
-    case "${MODIFIED_STARTUP}" in
-      /*)  TARGET="${MODIFIED_STARTUP}" ;;
-      ./*) TARGET="/home/container/${MODIFIED_STARTUP#./}" ;;
-      *)   TARGET="/home/container/${MODIFIED_STARTUP}" ;;
-    esac
+# --- Seed nginx/php-fpm only if missing ---
+if [ -d /home/container/nginx ] && [ "$(ls -A /home/container/nginx 2>/dev/null || true)" ]; then
+  echo "[ptero] nginx/ exists; skipping seed"
+else
+  echo "[ptero] nginx/ missing/empty; seeding from image"
+  mkdir -p /home/container/nginx
+  cp -a "${TEMPLATE_NGINX_DIR}/." /home/container/nginx/
+fi
 
-    # Seed only if missing
-    if [ ! -f "${TARGET}" ]; then
-      echo "[INFO] Startup script not found at ${TARGET}. Seeding default..."
-      cp /usr/local/share/ptero/default-startup.sh "${TARGET}"
-      chmod +x "${TARGET}" 2>/dev/null || true
-      chown container:container "${TARGET}" 2>/dev/null || true
-      echo "[SUCCESS] Seeded ${TARGET}"
-    else
-      echo "[INFO] Using existing startup script at ${TARGET} (not overwriting)."
-    fi
+if [ -d /home/container/php-fpm ] && [ "$(ls -A /home/container/php-fpm 2>/dev/null || true)" ]; then
+  echo "[ptero] php-fpm/ exists; skipping seed"
+else
+  echo "[ptero] php-fpm/ missing/empty; seeding from image"
+  mkdir -p /home/container/php-fpm
+  cp -a "${TEMPLATE_PHPFPM_DIR}/." /home/container/php-fpm/
+fi
 
-    # Run it directly (respects shebang: /bin/sh, /bin/ash, /bin/bash, etc.)
-    exec "${TARGET}"
-    ;;
-  *)
-    # Not a script path: treat as a command string
-    exec /bin/sh -lc "${MODIFIED_STARTUP}"
-    ;;
-esac
+# Ownership (ignore if not running as root)
+chown -R container:container /home/container 2>/dev/null || true
+
+echo "[ptero] Boot seed complete. Launching startup..."
+exec /bin/sh "${TARGET_START}"

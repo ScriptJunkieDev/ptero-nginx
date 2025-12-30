@@ -17,6 +17,10 @@ log_success "Temporary files removed successfully."
 
 cd /home/container/webroot || { log_error "webroot not found"; exit 1; }
 
+# Defaults used by INIT_LARAVEL scaffolding
+LARAVEL_PACKAGE="${LARAVEL_PACKAGE:-laravel/laravel}"
+LARAVEL_VERSION="${LARAVEL_VERSION:-}"
+
 # ----------------------------
 # Optional full rebuild (explicit)
 # ----------------------------
@@ -58,138 +62,73 @@ if [ "${INIT_LARAVEL:-0}" = "1" ] || [ "${INIT_LARAVEL:-false}" = "true" ]; then
 fi
 
 # ----------------------------
-# INIT_LARAVEL (one-time scaffold; only if no git site)
-# ----------------------------
-LARAVEL_PACKAGE="${LARAVEL_PACKAGE:-laravel/laravel}"
-LARAVEL_VERSION="${LARAVEL_VERSION:-}"
-
-if [ "${AUTO_UPDATE:-0}" = "1" ] || [ "${AUTO_UPDATE:-false}" = "true" ]; then
-  if [ -n "${GIT_ADDRESS}" ]; then
-    log_info "AUTO_UPDATE enabled. Syncing from git..."
-
-    # Normalize URL
-    case "${GIT_ADDRESS}" in
-      git@*) REPO_URL="${GIT_ADDRESS}" ;;
-      http://*|https://*) REPO_URL="${GIT_ADDRESS}" ;;
-      *) REPO_URL="https://${GIT_ADDRESS}" ;;
-    esac
-
-    # Trim trailing slashes
-    while [ "${REPO_URL%/}" != "${REPO_URL}" ]; do REPO_URL="${REPO_URL%/}"; done
-
-    # Strip https userinfo (https://user@host/...) that breaks some git/curl builds
-    case "${REPO_URL}" in
-      https://*@*) REPO_URL="$(printf '%s' "${REPO_URL}" | sed -E 's#^https://[^/@]+@#https://#')" ;;
-    esac
-
-    # Do not force .git; also strip it if someone provided it
-    case "${REPO_URL}" in
-      *.git) REPO_URL="${REPO_URL%.git}" ;;
-    esac
-
-    # Build Basic auth header for HTTPS token auth (GitHub + Azure DevOps)
-    GIT_EXTRAHEADER=""
-    if [ -n "${USERNAME}" ] && [ -n "${ACCESS_TOKEN}" ]; then
-      case "${REPO_URL}" in
-        https://*)
-          AUTH_B64="$(printf '%s:%s' "${USERNAME}" "${ACCESS_TOKEN}" | base64 | tr -d '\n')"
-          GIT_EXTRAHEADER="AUTHORIZATION: Basic ${AUTH_B64}"
-          export GIT_TERMINAL_PROMPT=0
-          ;;
-      esac
-    fi
-
-    git_with_auth() {
-      if [ -n "${GIT_EXTRAHEADER}" ]; then
-        git -c "http.extraHeader=${GIT_EXTRAHEADER}" "$@"
-      else
-        git "$@"
-      fi
-    }
-
-    if [ -d .git ]; then
-      # Self-heal: sanitize whatever origin is currently set to
-      ORIGIN_URL="$(git remote get-url origin 2>/dev/null || true)"
-
-      if [ -n "${ORIGIN_URL}" ]; then
-        FIXED_URL="${ORIGIN_URL}"
-
-        # trim trailing slashes
-        while [ "${FIXED_URL%/}" != "${FIXED_URL}" ]; do FIXED_URL="${FIXED_URL%/}"; done
-        # remove userinfo
-        case "${FIXED_URL}" in
-          https://*@*) FIXED_URL="$(printf '%s' "${FIXED_URL}" | sed -E 's#^https://[^/@]+@#https://#')" ;;
-        esac
-        # remove .git suffix if present
-        case "${FIXED_URL}" in
-          *.git) FIXED_URL="${FIXED_URL%.git}" ;;
-        esac
-
-        if [ "${FIXED_URL}" != "${ORIGIN_URL}" ]; then
-          log_info "Fixing origin URL..."
-          git remote set-url origin "${FIXED_URL}" 2>/dev/null || true
-        fi
-      fi
-
-      # Ensure origin matches the configured repo URL (clean)
-      git remote set-url origin "${REPO_URL}" 2>/dev/null || true
-
-      log_info "AUTO_UPDATE enabled. Pulling..."
-      git_with_auth fetch --all --prune || log_warning "git fetch failed"
-
-      if [ -n "${BRANCH}" ]; then
-        git checkout "${BRANCH}" 2>/dev/null || true
-        git_with_auth pull --ff-only origin "${BRANCH}" || log_warning "git pull failed"
-      else
-        git_with_auth pull --ff-only || log_warning "git pull failed"
-      fi
-    else
-      if [ -z "$(ls -A . 2>/dev/null)" ]; then
-        log_info "webroot empty; cloning repo..."
-        if [ -n "${BRANCH}" ]; then
-          git_with_auth clone --single-branch --branch "${BRANCH}" "${REPO_URL}" . || log_warning "git clone failed"
-        else
-          git_with_auth clone "${REPO_URL}" . || log_warning "git clone failed"
-        fi
-      else
-        log_warning "AUTO_UPDATE is on but webroot is not a git repo; skipping pull."
-      fi
-    fi
-  else
-    log_warning "AUTO_UPDATE enabled but GIT_ADDRESS is empty; skipping."
-  fi
-fi
-
-
-
-# ----------------------------
 # Git deploy (site repo)
 # - clone if webroot is empty (first boot)
 # - pull only if AUTO_UPDATE=1 (optional)
+#
+# NOTE: this script previously had TWO competing git-sync blocks.
+# That caused origin URLs to be rewritten (adding .git, embedding creds)
+# and could lead to "out of date" deployments.
 # ----------------------------
+is_true() {
+  case "${1:-0}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 if [ -n "${GIT_ADDRESS:-}" ]; then
+  # Normalize URL
   case "${GIT_ADDRESS}" in
     git@*) REPO_URL="${GIT_ADDRESS}" ;;
     http://*|https://*) REPO_URL="${GIT_ADDRESS}" ;;
     *) REPO_URL="https://${GIT_ADDRESS}" ;;
   esac
 
-  [ "${REPO_URL##*.}" != "git" ] && REPO_URL="${REPO_URL}.git"
+  # Trim trailing slashes
+  while [ "${REPO_URL%/}" != "${REPO_URL}" ]; do REPO_URL="${REPO_URL%/}"; done
 
+  # Strip https userinfo (https://user@host/...) to avoid broken origins
+  case "${REPO_URL}" in
+    https://*@*) REPO_URL="$(printf '%s' "${REPO_URL}" | sed -E 's#^https://[^/@]+@#https://#')" ;;
+  esac
+
+  # Build Basic auth header for HTTPS token auth (GitHub/Azure DevOps)
+  GIT_EXTRAHEADER=""
   if [ -n "${USERNAME:-}" ] && [ -n "${ACCESS_TOKEN:-}" ]; then
-    REPO_URL="https://${USERNAME}:${ACCESS_TOKEN}@${REPO_URL#https://}"
+    case "${REPO_URL}" in
+      https://*)
+        AUTH_B64="$(printf '%s:%s' "${USERNAME}" "${ACCESS_TOKEN}" | base64 | tr -d '\n')"
+        GIT_EXTRAHEADER="AUTHORIZATION: Basic ${AUTH_B64}"
+        export GIT_TERMINAL_PROMPT=0
+        ;;
+    esac
   fi
 
+  git_with_auth() {
+    if [ -n "${GIT_EXTRAHEADER}" ]; then
+      git -c "http.extraHeader=${GIT_EXTRAHEADER}" "$@"
+    else
+      git "$@"
+    fi
+  }
+
   if [ -d .git ]; then
-    if [ "${AUTO_UPDATE:-0}" = "1" ] || [ "${AUTO_UPDATE:-false}" = "true" ]; then
-      log_info "AUTO_UPDATE enabled. Pulling..."
+    CURRENT_ORIGIN="$(git remote get-url origin 2>/dev/null || true)"
+    if [ -n "${CURRENT_ORIGIN}" ] && [ "${CURRENT_ORIGIN}" != "${REPO_URL}" ]; then
+      log_info "Updating origin URL to match GIT_ADDRESS..."
       git remote set-url origin "${REPO_URL}" 2>/dev/null || true
-      git fetch --all --prune || log_warning "git fetch failed"
+    fi
+
+    if is_true "${AUTO_UPDATE:-0}"; then
+      log_info "AUTO_UPDATE enabled. Fetching & pulling..."
+      git_with_auth fetch --all --prune || log_warning "git fetch failed"
+
       if [ -n "${BRANCH:-}" ]; then
-        git checkout "${BRANCH}" 2>/dev/null || true
-        git pull --ff-only origin "${BRANCH}" || log_warning "git pull failed"
+        git checkout "${BRANCH}" 2>/dev/null || log_warning "git checkout failed"
+        git_with_auth pull --ff-only origin "${BRANCH}" || log_warning "git pull failed"
       else
-        git pull --ff-only || log_warning "git pull failed"
+        git_with_auth pull --ff-only || log_warning "git pull failed"
       fi
     else
       log_info "AUTO_UPDATE disabled; not pulling."
@@ -198,9 +137,9 @@ if [ -n "${GIT_ADDRESS:-}" ]; then
     if [ -z "$(ls -A . 2>/dev/null)" ]; then
       log_info "webroot empty; cloning site..."
       if [ -n "${BRANCH:-}" ]; then
-        git clone --single-branch --branch "${BRANCH}" "${REPO_URL}" . || { log_error "git clone failed"; exit 1; }
+        git_with_auth clone --single-branch --branch "${BRANCH}" "${REPO_URL}" . || { log_error "git clone failed"; exit 1; }
       else
-        git clone "${REPO_URL}" . || { log_error "git clone failed"; exit 1; }
+        git_with_auth clone "${REPO_URL}" . || { log_error "git clone failed"; exit 1; }
       fi
       log_success "Site cloned."
     else

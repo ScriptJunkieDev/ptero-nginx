@@ -26,9 +26,14 @@ RUN addgroup -S container \
 
 WORKDIR /home/container
 
-# Template startup script (seeded into whatever STARTUP_CMD points to, if missing)
-COPY start.sh /usr/local/share/ptero/default-startup.sh
-RUN chmod +x /usr/local/share/ptero/default-startup.sh
+# Seedable templates (copied into the server volume on container start)
+COPY nginx/   /usr/local/share/ptero/templates/nginx/
+COPY php-fpm/ /usr/local/share/ptero/templates/php-fpm/
+
+
+# Template startup script (seeded into whatever STARTUP_CMD points to, overwritten on boot)
+COPY start.sh /usr/local/share/ptero/start.sh
+RUN chmod +x /usr/local/share/ptero/start.sh
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
