@@ -11,7 +11,8 @@ TARGET_START="${STARTUP_CMD:-/home/container/start.sh}"
 echo "[ptero] Boot seed starting..."
 echo "[ptero] TARGET_START=${TARGET_START}"
 
-# --- Always reseed start.sh (overwrite every boot) ---
+# --- Always reseed start.sh from image (overwrite every boot) ---
+# Update start.sh in this repo and rebuild/publish the image for changes to apply.
 mkdir -p "$(dirname "${TARGET_START}")"
 cp -f "${TEMPLATE_START}" "${TARGET_START}"
 chmod +x "${TARGET_START}"

@@ -4,7 +4,7 @@ FROM php:${PHP_VERSION}-fpm-alpine
 # ✅ Runtime libs needed by gd.so at runtime
 RUN apk add --no-cache \
     nginx git unzip zip ca-certificates openssh-client libzip bash \
-    libpng libjpeg-turbo freetype
+    libpng libjpeg-turbo freetype bzip2
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
@@ -15,8 +15,9 @@ RUN apk add --no-cache --virtual .build-deps \
       libpng-dev \
       libjpeg-turbo-dev \
       freetype-dev \
+      bzip2-dev \
   && docker-php-ext-configure gd --with-freetype --with-jpeg \
-  && docker-php-ext-install pdo_mysql mysqli bcmath zip gd \
+  && docker-php-ext-install pdo_mysql mysqli bcmath zip gd bz2 \
   && apk del .build-deps
 
 RUN addgroup -S container \

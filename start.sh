@@ -1,6 +1,22 @@
 #!/bin/ash
 set -eu
 
+# Composer cache (must be set before any composer command, including create-project)
+export COMPOSER_HOME="${COMPOSER_HOME:-/home/container/.composer}"
+export COMPOSER_CACHE_DIR="${COMPOSER_CACHE_DIR:-/home/container/.composer/cache}"
+mkdir -p "${COMPOSER_CACHE_DIR}" 2>/dev/null || true
+
+is_true() {
+  case "${1:-0}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+webroot_has_content() {
+  [ -n "$(ls -A /home/container/webroot 2>/dev/null)" ]
+}
+
 GREEN="\033[0;32m"
 YELLOW="\033[1;33m"
 RED="\033[0;31m"
@@ -25,22 +41,19 @@ LARAVEL_VERSION="${LARAVEL_VERSION:-}"
 # Optional full rebuild (explicit)
 # ----------------------------
 LARAVEL_INIT_MARKER="${LARAVEL_INIT_MARKER:-.laravel_auto_initialized}"
-if [ "${REBUILD_SITE:-0}" = "1" ] || [ "${REBUILD_SITE:-false}" = "true" ]; then
+if is_true "${REBUILD_SITE:-0}"; then
   log_warning "REBUILD_SITE enabled: wiping /home/container/webroot..."
   rm -rf -- /home/container/webroot/* /home/container/webroot/.[!.]* /home/container/webroot/..?* 2>/dev/null
   rm -f "/home/container/webroot/${LARAVEL_INIT_MARKER}" 2>/dev/null || true
   log_success "webroot wiped."
 fi
 
-if [ "${INIT_LARAVEL:-0}" = "1" ] || [ "${INIT_LARAVEL:-false}" = "true" ]; then
-  if [ ! -f "/home/container/webroot/${LARAVEL_INIT_MARKER}" ]; then
-    log_warning "INIT_LARAVEL enabled and marker not found (${LARAVEL_INIT_MARKER})."
-    log_warning "WIPING /home/container/webroot and rebuilding Laravel..."
+if is_true "${INIT_LARAVEL:-0}"; then
+  if webroot_has_content; then
+    log_warning "INIT_LARAVEL ignored: webroot is not empty (won't overwrite deployed site)."
+  else
+    log_info "INIT_LARAVEL: empty webroot, creating Laravel project..."
 
-    # Wipe webroot safely (including dotfiles) without touching '.' or '..'
-    rm -rf -- /home/container/webroot/* /home/container/webroot/.[!.]* /home/container/webroot/..?* 2>/dev/null
-
-    # Rebuild Laravel
     log_info "Creating Laravel project via composer..."
     if [ -n "${LARAVEL_VERSION}" ]; then
       composer create-project --no-interaction --prefer-dist "${LARAVEL_PACKAGE}" /home/container/webroot "${LARAVEL_VERSION}" \
@@ -50,50 +63,29 @@ if [ "${INIT_LARAVEL:-0}" = "1" ] || [ "${INIT_LARAVEL:-false}" = "true" ]; then
         || { log_error "composer create-project failed"; exit 1; }
     fi
 
-    # Basic writable dirs (common for Laravel containers)
     chmod -R 775 /home/container/webroot/storage /home/container/webroot/bootstrap/cache 2>/dev/null || true
 
-    # Drop marker so we don't wipe again next boot
     touch "/home/container/webroot/${LARAVEL_INIT_MARKER}" || true
     log_success "Laravel initialized. Marker created: ${LARAVEL_INIT_MARKER}"
-  else
-    log_success "INIT_LARAVEL enabled but marker exists (${LARAVEL_INIT_MARKER}); skipping wipe/rebuild."
   fi
 fi
 
 # ----------------------------
 # Git deploy (site repo)
-# - clone if webroot is empty (first boot)
-# - pull only if AUTO_UPDATE=1 (optional)
-#
-# NOTE: this script previously had TWO competing git-sync blocks.
-# That caused origin URLs to be rewritten (adding .git, embedding creds)
-# and could lead to "out of date" deployments.
 # ----------------------------
-is_true() {
-  case "${1:-0}" in
-    1|true|TRUE|yes|YES|on|ON) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
 if [ -n "${GIT_ADDRESS:-}" ]; then
-  # Normalize URL
   case "${GIT_ADDRESS}" in
     git@*) REPO_URL="${GIT_ADDRESS}" ;;
     http://*|https://*) REPO_URL="${GIT_ADDRESS}" ;;
     *) REPO_URL="https://${GIT_ADDRESS}" ;;
   esac
 
-  # Trim trailing slashes
   while [ "${REPO_URL%/}" != "${REPO_URL}" ]; do REPO_URL="${REPO_URL%/}"; done
 
-  # Strip https userinfo (https://user@host/...) to avoid broken origins
   case "${REPO_URL}" in
     https://*@*) REPO_URL="$(printf '%s' "${REPO_URL}" | sed -E 's#^https://[^/@]+@#https://#')" ;;
   esac
 
-  # Build Basic auth header for HTTPS token auth (GitHub/Azure DevOps)
   GIT_EXTRAHEADER=""
   if [ -n "${USERNAME:-}" ] && [ -n "${ACCESS_TOKEN:-}" ]; then
     case "${REPO_URL}" in
@@ -150,23 +142,28 @@ fi
 
 # ----------------------------
 # Composer install (optional)
+# RUN_COMPOSER_INSTALL=1 runs every boot when composer.json exists.
+# Set RUN_COMPOSER_INSTALL_ONLY_IF_MISSING=1 to restore old behavior (vendor missing only).
 # ----------------------------
 if [ "${RUN_COMPOSER_INSTALL:-0}" = "1" ] || [ "${RUN_COMPOSER_INSTALL:-false}" = "true" ]; then
-  if [ -f composer.json ] && [ ! -f vendor/autoload.php ]; then
-    log_info "Running composer install..."
-    COMPOSER_FLAGS_EFFECTIVE="${COMPOSER_FLAGS:-"--no-dev --optimize-autoloader"}"
-    composer install --no-interaction --prefer-dist ${COMPOSER_FLAGS_EFFECTIVE} \
-      || { log_error "composer install failed"; exit 1; }
-    log_success "Composer install completed."
+  if [ -f composer.json ]; then
+    if [ ! -f vendor/autoload.php ] || ! is_true "${RUN_COMPOSER_INSTALL_ONLY_IF_MISSING:-0}"; then
+      log_info "Running composer install..."
+      COMPOSER_FLAGS_EFFECTIVE="${COMPOSER_FLAGS:---no-dev --optimize-autoloader}"
+      # shellcheck disable=SC2086
+      composer install --no-interaction --prefer-dist ${COMPOSER_FLAGS_EFFECTIVE} \
+        || { log_error "composer install failed"; exit 1; }
+      log_success "Composer install completed."
+    else
+      log_info "vendor/autoload.php present; RUN_COMPOSER_INSTALL_ONLY_IF_MISSING=1, skipping composer install."
+    fi
   fi
 fi
 
-# Ensure .env exists if Laravel scaffold or repo includes .env.example
 if [ ! -f .env ] && [ -f .env.example ]; then
   cp .env.example .env
 fi
 
-# Generate APP_KEY if missing
 if [ -f artisan ] && [ -f .env ] && ! grep -q '^APP_KEY=base64:' .env; then
   php artisan key:generate --force || true
 fi
