@@ -148,11 +148,9 @@ fi
 if [ "${RUN_COMPOSER_INSTALL:-0}" = "1" ] || [ "${RUN_COMPOSER_INSTALL:-false}" = "true" ]; then
   if [ -f composer.json ]; then
     if [ ! -f composer.lock ]; then
-      log_error "composer.lock is missing. composer install was skipped."
-      log_error "Deploy a project with a lock file, or run composer update manually in webroot."
-      exit 1
-    fi
-    if [ ! -f vendor/autoload.php ] || ! is_true "${RUN_COMPOSER_INSTALL_ONLY_IF_MISSING:-0}"; then
+      log_warning "composer.lock is missing; skipping composer install."
+      log_warning "Deploy your app with composer.lock present, or add one before enabling RUN_COMPOSER_INSTALL."
+    elif [ ! -f vendor/autoload.php ] || ! is_true "${RUN_COMPOSER_INSTALL_ONLY_IF_MISSING:-0}"; then
       log_info "Running composer install..."
       COMPOSER_FLAGS_EFFECTIVE="${COMPOSER_FLAGS:---no-dev --optimize-autoloader}"
       # shellcheck disable=SC2086
