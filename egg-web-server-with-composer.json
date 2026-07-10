@@ -4,7 +4,7 @@
         "version": "PTDL_v2",
         "update_url": null
     },
-    "exported_at": "2025-12-29T20:47:48-05:00",
+    "exported_at": "2026-07-10T11:08:00-04:00",
     "name": "Web Server with Composer",
     "author": "scriptjunkie@towncraft.us",
     "description": "Nginx web server with Composer support.",
@@ -15,7 +15,7 @@
     "file_denylist": [],
     "startup": "{{STARTUP_CMD}}",
     "config": {
-        "files": "{}",
+        "files": "{\r\n    \"nginx\/conf.d\/default.conf\": {\r\n        \"parser\": \"file\",\r\n        \"find\": {\r\n            \"    listen \": \"    listen {{server.build.default.port}};\"\r\n        }\r\n    }\r\n}",
         "startup": "{\r\n    \"done\": \"[SUCCESS] Web server is running. All services started successfully.\",\r\n    \"userInteraction\": []\r\n}",
         "logs": "{\r\n    \"custom\": false,\r\n    \"location\": \"logs/latest.log\"\r\n}",
         "stop": "^C & ^C"
@@ -189,5 +189,5 @@
             "field_type": "text"
         }
     ],
-    "icon": null
+    "icon": "https:\/\/i.imgur.com\/VBzHOut.png"
 }
